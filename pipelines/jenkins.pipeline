@@ -1,0 +1,45 @@
+ansiColor('xterm') {
+    node("develop") {
+        try{
+            ENV = 'DEV'
+            checkout scm
+
+            stage('Run Terraform') {
+                sh "sudo terraform init ${backend} 
+                sh "sudo terraform workspace select ${ENV}"
+
+                println "Applying changes to ${envOptions.resource}"
+                def applyExitCode = -1
+                applyExitCode = sh script: "sudo terraform apply --parallelism=5 .execution_plan", returnStatus: true
+            
+                println "${applyExitCode}"
+                if (applyExitCode == 0) {
+                    println "SUCCESSFUL Deployment"
+                } else if (applyExitCode != 0) {
+                    println "FAILED Deployment"
+                    error "Error applying Terraform configuration to '${ENV}'"
+                }
+            }
+            stage('Run Inspec Tests') {
+                dir("gcpdevprofile"){
+                    def applyExitCode = -1
+                    applyExitCode = sh script: "sudo inspec exec . -t gcp:// --attrs attributes.yml", returnStatus: true 
+                    
+                    if (applyExitCode == 0) {
+                        println "Tests SUCCESSFUL"
+                    } else if (applyExitCode != 0) {
+                        println "Tests FAILED"
+                        error "Tests failed for Terraform configuration to '${ENV}'"
+                    }
+                }
+            }
+
+        } catch (e) {
+            println("${e}")
+            currentBuild.result = 'FAILURE'
+            return
+        } finally {
+            deleteDir()
+        }
+    }
+}
